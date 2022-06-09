@@ -34,13 +34,14 @@ from pagelabels import PageLabels, PageLabelScheme
 #
 
 # 01.0_pp_i_iv_Frontmatter.pdf
-INPUT_PDF_REGEX = r"^([0-9]+)\.([0-9]+)_pp_([^_]+)_([^_]+)_.+\.pdf$"
+INPUT_PDF_REGEX = r"^([0-9]+)\.([0-9]+)_pp_([^_]+)_([^_]+)_(.+)\.pdf$"
 MAX_PREFIX_LEN = 5000
 
 
 @dataclass
 class SourcePdf:
     name: str
+    pritty_name: str
     part_no: int
     chap_no: int
 
@@ -57,6 +58,13 @@ class SourcePdf:
 
     def npages(self):
         return self.page_end - self.page_start + 1
+
+
+@dataclass
+class Bookmark:
+    title: str
+    level: int
+    page_nubmer: int
 
 
 def page_no_ish(pageno):
@@ -119,8 +127,10 @@ if __name__ == "__main__":
             chap_no = m.group(2)
             page_start_str = m.group(3)
             page_end_str = m.group(4)
+            pritty_name = m.group(5).replace("_", " ")
             part = SourcePdf(
                 name=i,
+                pritty_name=pritty_name,
                 part_no=int(part_no),
                 chap_no=int(chap_no),
                 page_start=page_no_real(page_start_str),
@@ -142,18 +152,34 @@ if __name__ == "__main__":
             f"{p.name:70} {p.part_no:3}, {p.chap_no:3}, {p.page_start:5}, {p.page_end:5} {p.is_roman}"
         )
         mergeOut.addpages(part_pages)
-    mergeOut.write(outpdf)
+    mergeOut.write("t1.pdf")
 
     # Phaise 2: Relabel
-    relabelIn = PdfReader(outpdf)
+    relabelIn = PdfReader("t1.pdf")
     labels = PageLabels.from_pdf(relabelIn)
     rpn = 0
+    bookmarks = []
     for p in pages:
         labels.append(
             PageLabelScheme(startpage=rpn, style=p.style(), firstpagenum=p.page_start)
         )
+        bookmark = Bookmark(
+            title=p.pritty_name,
+            level=1 if p.chap_no == 0 else 2,
+            page_nubmer=rpn + 1,
+        )
+        bookmarks.append(bookmark)
         rpn += p.npages()
     labels.write(relabelIn)
     relabelOut = PdfWriter()
     relabelOut.trailer = relabelIn
-    relabelOut.write(outpdf)
+    relabelOut.write("t2.pdf")
+
+    with open("bookmarks.txt", "w") as f:
+        for b in bookmarks:
+            # https://unix.stackexchange.com/a/566734
+            f.write("BookmarkBegin\n")
+            f.write(f"BookmarkTitle: {b.title}\n")
+            f.write(f"BookmarkLevel: {b.level}\n")
+            f.write(f"BookmarkPageNumber: {b.page_nubmer}\n")
+    os.system(f"pdftk t2.pdf update_info bookmarks.txt output {outpdf}")
